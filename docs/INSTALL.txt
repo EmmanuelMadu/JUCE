@@ -1,0 +1,28 @@
+Hearth Keys - installing on a Mac
+=================================
+
+1. Unzip the download. You get a folder called "Hearth Keys".
+2. Open Terminal (Applications > Utilities > Terminal) and type:
+
+       cd ~/Downloads/"Hearth Keys"
+       bash install_mac.sh
+
+   (If you unzipped it somewhere else, drag the folder onto the Terminal
+   window after typing "cd " instead of typing the path.)
+
+3. Restart your DAW and rescan plug-ins. Hearth Keys appears as an instrument:
+   Audio Unit for Logic Pro and GarageBand, VST3 for Ableton Live, FL Studio,
+   Cubase, Reaper, Studio One and others.
+
+The script copies the plug-ins into your own Library folder, removes the
+"downloaded from the internet" flag and signs them for this computer. It does
+not need an administrator password. The builds are not notarised by Apple,
+which is why this step is needed.
+
+"Hearth Keys.app" in the same folder is a standalone version: after running
+the script you can open it directly to play without a DAW (choose your MIDI
+keyboard under Options > Audio/MIDI Settings).
+
+To remove Hearth Keys, delete:
+    ~/Library/Audio/Plug-Ins/VST3/Hearth Keys.vst3
+    ~/Library/Audio/Plug-Ins/Components/Hearth Keys.component

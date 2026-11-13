@@ -1,0 +1,93 @@
+# Builds Hearth Keys for macOS (Apple Silicon + Intel), tests it on a real Mac and
+# publishes the result as a downloadable build.
+name: Build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64"
+
+      - name: Build
+        run: cmake --build build --config Release --parallel 3 --target HearthKeys_VST3 HearthKeys_AU HearthKeys_Standalone hk_snapshot hk
+
+      - name: Engine tests
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet numpy
+          HK_LIB="$PWD/build/libhk.dylib" .venv/bin/python tests/run_tests.py
+
+      - name: Render the interface
+        run: |
+          ./build/hk_snapshot "$PWD/interface.png" 1 2.0 60,64,67
+          ./build/hk_snapshot "$PWD/interface-small.png" 2 1.0
+
+      - name: Check architectures and sign
+        run: |
+          A="build/HearthKeys_artefacts/Release"
+          lipo -info "$A/VST3/Hearth Keys.vst3/Contents/MacOS/Hearth Keys"
+          lipo -info "$A/AU/Hearth Keys.component/Contents/MacOS/Hearth Keys"
+          for b in "$A/VST3/Hearth Keys.vst3" "$A/AU/Hearth Keys.component" "$A/Standalone/Hearth Keys.app"; do
+            codesign --force --deep --sign - "$b"
+            codesign --verify --deep --strict "$b"
+          done
+
+      - name: Validate the VST3 (pluginval)
+        run: |
+          curl -sSL -o pluginval.zip https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_macOS.zip
+          unzip -q pluginval.zip
+          ./pluginval.app/Contents/MacOS/pluginval --strictness-level 8 --validate-in-process --timeout-ms 600000 \
+            --output-dir pluginval-logs "build/HearthKeys_artefacts/Release/VST3/Hearth Keys.vst3"
+
+      - name: Validate the Audio Unit (auval)
+        run: |
+          mkdir -p "$HOME/Library/Audio/Plug-Ins/Components"
+          cp -R "build/HearthKeys_artefacts/Release/AU/Hearth Keys.component" "$HOME/Library/Audio/Plug-Ins/Components/"
+          killall -9 AudioComponentRegistrar 2>/dev/null || true
+          sleep 2
+          auval -v aumu HrKy Hmde
+
+      - name: Package
+        run: |
+          A="build/HearthKeys_artefacts/Release"
+          mkdir -p "dist/Hearth Keys"
+          cp -R "$A/VST3/Hearth Keys.vst3" "$A/AU/Hearth Keys.component" "$A/Standalone/Hearth Keys.app" "dist/Hearth Keys/"
+          cp scripts/install_mac.sh "dist/Hearth Keys/install_mac.sh"
+          cp docs/INSTALL.txt "dist/Hearth Keys/READ ME FIRST.txt"
+          (cd dist && ditto -c -k --keepParent "Hearth Keys" HearthKeys-macOS.zip)
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HearthKeys-macOS
+          path: |
+            dist/HearthKeys-macOS.zip
+            interface.png
+            interface-small.png
+            pluginval-logs
+
+      - name: Publish as the latest build
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --yes --cleanup-tag 2>/dev/null || true
+          gh release create latest dist/HearthKeys-macOS.zip interface.png \
+            --title "Latest build" --prerelease --target "$GITHUB_SHA" \
+            --notes "Automatic build of commit $GITHUB_SHA. Unzip, then run install_mac.sh from Terminal (see READ ME FIRST.txt)."
