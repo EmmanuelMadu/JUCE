@@ -79,7 +79,7 @@ jobs:
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64"
 
       - name: Build
-        run: cmake --build build --config Release --parallel 3 --target HearthKeys_VST3 HearthKeys_AU HearthKeys_Standalone hk_snapshot hk
+        run: cmake --build build --config Release --parallel 3 --target HearthKeys_VST3 HearthKeys_AU HearthKeys_Standalone hk_snapshot hk hk_bench
 
       - name: Check architectures and sign
         run: |
@@ -109,6 +109,9 @@ jobs:
           du -sh "$HOME/Library/Application Support/Hearth Keys/Grand-v1"
           bash "unzipped/Hearth Keys/install_mac.sh" | grep "already installed"
           ls "$HOME/Library/Audio/Plug-Ins/Components" "$HOME/Library/Audio/Plug-Ins/VST3"
+
+      - name: Speed of the grand on this Mac
+        run: ./build/hk_bench "$HOME/Library/Application Support/Hearth Keys/Grand-v1"
 
       - name: Engine tests (tines and grand, with the installed recordings)
         run: |

@@ -109,16 +109,70 @@ std::shared_ptr<GrandPack> GrandPack::open(const std::string& dir, std::string& 
         if (alive->dir_ == dir) return alive;
     std::shared_ptr<GrandPack> pack(new GrandPack());
     pack->dir_ = dir;
+    size_t total = 0;
+    for (int i = 0; i < kGrandFiles; ++i) {
+        pack->want_[i].store(0);
+        pack->headFrames_[i] = kGrandFile[i].frames < kHeadFrames ? kGrandFile[i].frames : kHeadFrames;
+        pack->headAt_[i] = total;
+        total += size_t(pack->headFrames_[i]) * 2;
+    }
+    pack->heads_.resize(total);
     for (int i = 0; i < kGrandFiles; ++i) {
         if (cancelled()) { error = "cancelled"; return nullptr; }
         const std::string path = dir + "/" + kGrandFile[i].name + ".wav";
         if (!pack->mapFile(i, path, error)) return nullptr;
+        std::memcpy(pack->heads_.data() + pack->headAt_[i], pack->maps_[i].pcm, size_t(pack->headFrames_[i]) * 4);
     }
+    pack->helper_ = std::thread([p = pack.get()] { p->helper(); });
     cache() = pack;
     return pack;
 }
 
+// Brings requested recordings into memory, a stretch at a time and in turn, so that every
+// note that has just started gets its next second or so before any gets the rest.
+void GrandPack::helper() {
+    struct Job { int file; size_t at, end; };
+    std::vector<Job> jobs;
+    const size_t kStretch = 256 * 1024;                 // bytes per turn: 1.4 s of sound
+    while (!stop_.load(std::memory_order_relaxed)) {
+        for (int i = 0; i < kGrandFiles; ++i) {
+            if (!want_[i].exchange(0, std::memory_order_relaxed)) continue;
+            const size_t from = size_t(headFrames_[i]) * 4, end = size_t(kGrandFile[i].frames) * 4;
+            bool known = false;
+            for (auto& j : jobs)
+                if (j.file == i) { j.at = from; known = true; }      // struck again: start over
+            if (!known) jobs.push_back({i, from, end});
+        }
+        if (jobs.empty()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(3));
+            continue;
+        }
+        for (size_t k = 0; k < jobs.size() && !stop_.load(std::memory_order_relaxed);) {
+            Job& j = jobs[k];
+            const size_t n = j.end - j.at < kStretch ? j.end - j.at : kStretch;
+            const unsigned char* p = reinterpret_cast<const unsigned char*>(maps_[j.file].pcm) + j.at;
+#if HK_HAVE_MMAP
+            if (!maps_[j.file].heap) {
+                // the advice must start on a page boundary
+                const size_t page = size_t(::sysconf(_SC_PAGESIZE));
+                const size_t lead = (reinterpret_cast<size_t>(p)) & (page - 1);
+                ::madvise(const_cast<unsigned char*>(p) - lead, n + lead, MADV_WILLNEED);
+            }
+#endif
+            volatile unsigned char sink = 0;
+            for (size_t o = 0; o < n; o += 4096) sink = p[o];
+            if (n) sink = p[n - 1];
+            (void) sink;
+            j.at += n;
+            if (j.at >= j.end) jobs.erase(jobs.begin() + long(k));
+            else ++k;
+        }
+    }
+}
+
 GrandPack::~GrandPack() {
+    stop_.store(true);
+    if (helper_.joinable()) helper_.join();
     for (auto& m : maps_) {
         if (!m.base) continue;
 #if HK_HAVE_MMAP

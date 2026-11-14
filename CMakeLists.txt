@@ -85,3 +85,10 @@ set_target_properties(hk PROPERTIES POSITION_INDEPENDENT_CODE ON)
 if(NOT MSVC)
     target_compile_options(hk PRIVATE -Wall -Wextra -Wshadow)
 endif()
+
+find_package(Threads REQUIRED)
+target_link_libraries(hk PRIVATE Threads::Threads)
+
+# Timing of the grand on the build machine: hk_bench <folder with the installed recordings>
+add_executable(hk_bench tools/bench.cpp ${HK_DSP_SOURCES})
+target_link_libraries(hk_bench PRIVATE Threads::Threads)

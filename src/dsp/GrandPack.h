@@ -1,6 +1,11 @@
 // The grand piano's recordings on disk: 641 16-bit stereo WAV files that are
 // mapped into memory (not copied), so several instances of the plugin share
 // them and the operating system keeps in RAM only what is being played.
+//
+// The audio thread must not wait for the disk.  Two things see to that: the
+// first half second of every recording is kept in ordinary memory, and when
+// a note starts a helper thread brings the rest of its recording in, a
+// stretch at a time and always ahead of the playing position.
 #pragma once
 
 #include <atomic>
@@ -8,6 +13,8 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <thread>
+#include <vector>
 
 #include "GrandTable.h"
 
@@ -25,6 +32,14 @@ public:
 
     const int16_t* pcm(int file) const { return maps_[file].pcm; }      // interleaved L, R
     uint32_t frames(int file) const { return kGrandFile[file].frames; }
+    // The start of the recording, held in memory: the same samples as pcm(), headFrames() of them.
+    const int16_t* head(int file) const { return heads_.data() + headAt_[file]; }
+    uint32_t headFrames(int file) const { return headFrames_[file]; }
+    // Asks for the rest of a recording to be brought into memory.  Safe on the audio thread.
+    void prefetch(int file) const {
+        if (headFrames_[file] < kGrandFile[file].frames) want_[file].store(1, std::memory_order_relaxed);
+    }
+    static constexpr uint32_t kHeadFrames = 24000;      // half a second
     const std::string& directory() const { return dir_; }
 
     // Reads every sample once -- which also brings the whole pack into memory -- and
@@ -47,9 +62,17 @@ private:
     GrandPack& operator=(const GrandPack&) = delete;
     bool mapFile(int index, const std::string& path, std::string& error);
 
+    void helper();
+
     Map maps_[kGrandFiles];
     std::string dir_;
     mutable std::atomic<int> verified_{-1};
+    std::vector<int16_t> heads_;
+    size_t headAt_[kGrandFiles] = {};
+    uint32_t headFrames_[kGrandFiles] = {};
+    mutable std::atomic<uint8_t> want_[kGrandFiles];
+    std::atomic<bool> stop_{false};
+    std::thread helper_;
 };
 
 }  // namespace hk

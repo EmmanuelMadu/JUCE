@@ -73,8 +73,9 @@ private:
         bool active = false, fading = false, dying = false, tailDone = false, lpOn = false, shelfOn = false;
         Kind kind = kNote;
         int key = -1;
-        const int16_t* data = nullptr;
-        int64_t frames = 0;
+        const int16_t* data = nullptr;      // the whole recording (mapped file)
+        const int16_t* head = nullptr;      // its start, held in memory
+        int64_t frames = 0, headFrames = 0;
         double pos = 0, rate = 1;
         float base = 0, env = 1, fade = 1, fadeMul = 1;
         float g = 0, dg = 0;
@@ -91,6 +92,7 @@ private:
     void startTail(const Voice& src);
     void startKeyNoise(int key);
     void startPedalNoise(bool down, double speedDb);
+    static void attach(Voice& v, const GrandPack* pack, int file);
     void renderVoice(Voice& v, float* left, float* right, float* exc, float* own, int n);
     void updateDampers();
     void compact();

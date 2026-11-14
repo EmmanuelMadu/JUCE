@@ -155,6 +155,15 @@ GrandBank::Voice* GrandBank::alloc(bool steal) {
     return nullptr;
 }
 
+// Points a voice at a recording and asks for the part beyond its in-memory start.
+void GrandBank::attach(Voice& v, const GrandPack* pack, int file) {
+    v.data = pack->pcm(file);
+    v.head = pack->head(file);
+    v.frames = kGrandFile[file].frames;
+    v.headFrames = pack->headFrames(file);
+    pack->prefetch(file);
+}
+
 void GrandBank::compact() {
     int n = 0;
     for (int i = 0; i < numActive_; ++i)
@@ -267,8 +276,7 @@ void GrandBank::strike(int k, double velocity, const GrandPack* pack) {
     const double ratio = std::pow(2.0, semis / 12.0) * ctl_.tuneRatio;
     o.kind = kNote;
     o.key = k;
-    o.data = pack->pcm(ly.file);
-    o.frames = kGrandFile[ly.file].frames;
+    attach(o, pack, ly.file);
     o.rate = ratio * (kGrandRate / fs_);
     o.base = float(kGrandFile[ly.file].scale * std::pow(10.0, gainDb / 20.0));
     o.g = o.base;
@@ -308,8 +316,7 @@ void GrandBank::startTail(const Voice& src) {
     if (!nv) return;
     nv->kind = kTail;
     nv->key = key;
-    nv->data = pack->pcm(tl.file);
-    nv->frames = kGrandFile[tl.file].frames;
+    attach(*nv, pack, tl.file);
     nv->rate = rate;
     nv->base = float(kGrandFile[tl.file].scale * std::pow(10.0, std::min(12.0, Tt - tl.level) / 20.0) * ctl_.tails);
     nv->g = nv->base;
@@ -329,8 +336,7 @@ void GrandBank::startKeyNoise(int k) {
     const int file = kGrandRel[k];
     nv->kind = kNoise;
     nv->key = k;
-    nv->data = pack->pcm(file);
-    nv->frames = kGrandFile[file].frames;
+    attach(*nv, pack, file);
     nv->rate = kGrandRate / fs_;
     nv->base = float(kGrandFile[file].scale * std::pow(10.0, dbv / 20.0) * ctl_.noise);
     nv->g = nv->base;
@@ -347,8 +353,7 @@ void GrandBank::startPedalNoise(bool down, double speedDb) {
     if (!nv) return;
     nv->kind = kNoise;
     nv->key = -1;
-    nv->data = pack->pcm(file);
-    nv->frames = kGrandFile[file].frames;
+    attach(*nv, pack, file);
     nv->rate = kGrandRate / fs_;
     nv->base = float(kGrandFile[file].scale * std::pow(10.0, ((down ? -20.0 : -19.0) + speedDb) / 20.0) * ctl_.noise);
     nv->g = nv->base;
@@ -392,8 +397,9 @@ void GrandBank::tick() {
 
 void GrandBank::renderVoice(Voice& v, float* left, float* right, float* exc, float* own, int n) {
     const float (*tab)[2 * kTaps] = sinc().c;
-    const int16_t* d = v.data;
-    const int64_t frames = v.frames;
+    const int16_t* file = v.data;
+    const int16_t* head = v.head;
+    const int64_t frames = v.frames, headFrames = v.headFrames;
     double pos = v.pos;
     const double rate = v.rate;
     float g = v.g;
@@ -411,6 +417,7 @@ void GrandBank::renderVoice(Voice& v, float* left, float* right, float* exc, flo
         const float* c1 = tab[pi + 1];
         // eight points of the recording around the position, weighted by the kernel; written
         // so that the compiler can use vector instructions, with a fixed order of the sums
+        const int16_t* d = ip + 5 < headFrames ? head : file;      // the same samples, already in memory
         const int16_t* q;
         int16_t edge[2 * kTaps];
         if (ip >= 3 && ip + 4 < frames) {
