@@ -1,5 +1,19 @@
 // Plain C interface to the engine, used by the Python tests and calibration tools.
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
+#include <memory>
+#include <string>
+
 #include "Engine.h"
+
+namespace {
+// packs opened through this interface stay open for the life of the process
+std::shared_ptr<hk::GrandPack>& heldPack() {
+    static std::shared_ptr<hk::GrandPack> p;
+    return p;
+}
+}  // namespace
 
 extern "C" {
 
@@ -29,5 +43,27 @@ float hk_param_default(int id) { return hk::paramInfo(id).def; }
 int hk_num_presets() { return hk::numPresets(); }
 const char* hk_preset_name(int i) { return hk::preset(i).name; }
 float hk_preset_value(int i, int id) { return hk::preset(i).v[id]; }
+
+// grand piano
+int hk_grand_load(void* h, const char* dir) {              // 1 = loaded, 0 = pack not usable
+    std::string err;
+    auto pack = hk::GrandPack::open(dir, err);
+    if (!pack) { std::fprintf(stderr, "grand pack: %s\n", err.c_str()); return 0; }
+    heldPack() = pack;
+    static_cast<hk::Engine*>(h)->setGrandPack(pack.get());
+    return 1;
+}
+int hk_grand_verify() { return heldPack() && heldPack()->verify() == 1 ? 1 : 0; }
+void hk_grand_raw(void* h, int raw) { static_cast<hk::Engine*>(h)->setGrandRaw(raw != 0); }
+void hk_sostenuto(void* h, float v) { static_cast<hk::Engine*>(h)->sostenuto(v); }
+void hk_soft(void* h, float v) { static_cast<hk::Engine*>(h)->softPedal(v); }
+int hk_grand_voices(void* h) { return static_cast<hk::Engine*>(h)->grandVoices(); }
+int hk_ringing_strings(void* h) { return static_cast<hk::Engine*>(h)->ringingStrings(); }
+int hk_num_tine_presets() { return hk::numTinePresets(); }
+float hk_grand_key_cents(int note) { return hk::kGrandNote[(std::min(std::max(note - 21, 0), 87) + 1) / 3].cents; }
+float hk_grand_partial(int note, int n) {
+    const hk::GrandNote& g = hk::kGrandNote[(std::min(std::max(note - 21, 0), 87) + 1) / 3];
+    return g.partial[std::min(std::max(n, 1), hk::kGrandPartials) - 1] * float(std::pow(2.0, (note - g.root) / 12.0));
+}
 
 }  // extern "C"

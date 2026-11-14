@@ -1,13 +1,20 @@
 # Hearth Keys
 
-A physically modelled tine electric piano (Rhodes-style) as a VST3 / Audio Unit
-instrument and standalone app, built with JUCE.
+Two keyboards in one instrument, as a VST3 / Audio Unit plug-in and standalone
+app built with JUCE:
 
-**Status: first playable stage (v0.1).** The electric piano model, its effects
-and the interface are in place and tested on Linux. The Mac build is produced
-by the GitHub workflow in `.github/workflows/build.yml`.
+- **Tines**: a physically modelled tine electric piano (Rhodes-style);
+- **Grand**: an acoustic grand built on recordings of a real piano, with the
+  behaviour of the instrument modelled around them.
 
-## What makes the sound
+They can be played separately or together, and they share one soundboard:
+the tines set the piano's strings ringing.
+
+**Status: v0.2.** Both instruments, the effects and the interface are in
+place and tested. The Mac build is produced, installed and tested by the
+GitHub workflow in `.github/workflows/build.yml`.
+
+## The tines
 
 Nothing is sampled. Each of the 88 keys has its own simulated sound generator:
 
@@ -28,7 +35,37 @@ After the pickups: bass and treble controls, a four-stage phaser, an
 oversampled drive stage with two cabinet voicings (suitcase and combo),
 stereo tremolo, chorus and reverb.
 
+## The grand
+
+The grand plays recordings of a Yamaha C5 (the Salamander Grand Piano V3 by
+Alexander Holm: 30 notes in minor thirds, 16 strike strengths each). What is
+added around them:
+
+| Part | How |
+|---|---|
+| Touch | Loudness follows the key velocity on one smooth curve. The recording whose natural loudness is nearest is used and levelled exactly, so there are no steps between the 16 strengths; a gentle shelf bridges the timbre between two neighbours. |
+| Hammer | The timbre can be taken from a harder or softer strike than the loudness asks for: felt hardness independent of volume, not an equaliser. |
+| Dampers | One per key up to E6 (the top strings have none, as on the piano). They follow the key, the sustain pedal at any position (half-pedalling), and the sostenuto pedal. A damper that lands takes the highs first; lifting it again catches what is left. Bass dampers are slower than treble dampers. |
+| Release | The recorded after-ring of the damped strings, scaled to what the strings were doing, and the noise of the key coming up. Pedal noises scale with how fast the pedal moves. |
+| Strings | Sympathetic resonance is modelled: every string that is free to move (held key, pedal, the undamped top) is a set of resonators at its partial frequencies as measured from the recordings, ringing with the measured decay times, driven by whatever reaches the soundboard. |
+| Soft pedal | Softer strike and lower level. |
+
+**One soundboard.** The same strings are also driven by the tines. With the
+grand in play the tines are tuned to the piano's stretch, so a tine note meets
+the string of its own key exactly; hold the pedal and the piano answers
+underneath the electric piano. "Tine Ring" sets how much.
+
+The recordings are not in this repository. `tools/grand/make_pack.py` rebuilds
+the sample pack bit for bit from the published source (the workflow does this
+once and publishes it as a release); the plug-in checks every sample of the
+installed pack against checksums compiled into it. Without the pack the tines
+work and the grand is silent.
+
 ## Where the numbers come from
+
+`src/dsp/GrandTable.cpp` holds what was measured from the piano recordings:
+loudness and brightness of every strike, decay, tuning of every sampled note,
+and the frequencies of its first twenty partials (`tools/grand`).
 
 The per-key constants in `src/dsp/KeyTable.cpp` were fitted to measurements of
 recordings of a real 1977 Mark I Stage 73 (see `docs/CALIBRATION.md`): how far
@@ -62,21 +99,33 @@ The sound engine (`src/dsp`) has no dependencies and is tested on its own:
 
 ```sh
 cmake --build build --target hk          # the engine as a shared library
-HK_LIB=build/libhk.so python3 tests/run_tests.py     # needs numpy
+HK_LIB=build/libhk.so python3 tests/run_tests.py     # needs numpy and scipy
 ```
 
-The tests cover tuning of all 88 keys, bit-identical output for any block
-size, agreement across sample rates, velocity response, dampers and pedal,
-repeated strikes, a randomised stress run, preset levels, latency, aliasing
-and speed. `hk_snapshot` renders the interface to a PNG without a screen.
+For the tines the tests cover tuning of all 88 keys, bit-identical output for
+any block size, agreement across sample rates, velocity response, dampers and
+pedal, repeated strikes, a randomised stress run, preset levels, latency,
+aliasing and speed.
+
+For the grand (set `HK_GRAND_DIR` to an installed pack; skipped otherwise):
+every recording against its checksum, sample-exact playback, the pitch shift
+between sampled notes, tuning, stepless loudness and timbre, the hammer
+control, dampers, half pedal, release-and-catch, sostenuto, soft pedal,
+release tails and noises, sympathetic resonance (pedal and held keys), the
+tines driving the strings, block-size independence, a stress run and speed.
+
+`hk_snapshot` renders the interface to a PNG without a screen.
 
 ## Layout
 
 ```
-src/dsp/       sound engine (TineBank, effects, Engine, generated KeyTable)
+src/dsp/       sound engine: TineBank (tines), GrandBank + GrandPack (grand),
+               StringBank (ringing strings), effects, Engine, generated tables
 src/plugin/    JUCE plug-in wrapper and interface
 tools/calib/   measurement and fitting scripts that produce KeyTable.cpp
+tools/grand/   measurement of the piano recordings, the pack recipe and builder
 tools/         snapshot tool
+scripts/       Mac installer (plug-ins and recordings)
 tests/         engine tests
 ```
 

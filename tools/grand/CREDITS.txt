@@ -1,0 +1,24 @@
+Hearth Keys - grand piano recordings, pack 1
+============================================
+
+These recordings are a processed copy of the
+
+    Salamander Grand Piano V3
+    by Alexander Holm
+    https://archive.org/details/SalamanderGrandPianoV3
+
+a Yamaha C5 grand recorded with two AKG C414 microphones, published under
+the Creative Commons Attribution 3.0 Unported licence (see
+LICENSE-CC-BY-3.0.txt in this folder).  The FLAC edition used as the source
+is https://github.com/sfzinstruments/SalamanderGrandPiano (commit
+3382bf9496bba2486f5ab0de55a264d1dfc38404).
+
+Changes made for this pack: the silence before each sound was trimmed, short
+fades were added at both ends, every file was scaled to full level (the
+instrument restores the original level when it plays), the word length was
+reduced from 24 to 16 bits with dither, and the files were renamed.  Nothing
+else was done to the sound.  The scripts in tools/grand of the Hearth Keys
+repository rebuild this pack exactly from the source.
+
+The pack is passed on under the same licence: you may use, copy and change
+it, including commercially, as long as Alexander Holm is credited.

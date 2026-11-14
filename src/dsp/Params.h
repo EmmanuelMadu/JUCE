@@ -28,6 +28,17 @@ enum ParamId {
     kReverb,
     kReverbSize,
     kVolume,
+    // --- the grand (added after the tine instrument; earlier ids keep their meaning)
+    kTinesOn,       // the tine instrument answers the keys
+    kGrandOn,       // the grand answers the keys
+    kBalance,       // tines <-> grand
+    kGrandHammer,   // felt hardness, independent of loudness
+    kGrandTone,     // tilt: dark <-> bright
+    kGrandRes,      // sympathetic string resonance and after-ring
+    kTineRing,      // how much the tines set the grand's strings ringing
+    kGrandNoise,    // key and pedal noises
+    kGrandWidth,    // stereo width of the grand
+    kGrandComp,     // compression
     kNumParams
 };
 
@@ -66,6 +77,16 @@ inline const ParamInfo& paramInfo(int id) {
         {"reverb", "Reverb", 0.0f, 1.0f, 0.15f, "", 0, nullptr},
         {"reverbsize", "Reverb Size", 0.0f, 1.0f, 0.5f, "", 0, nullptr},
         {"volume", "Volume", -30.0f, 6.0f, 0.0f, "dB", 0, nullptr},
+        {"tineson", "Tines", 0.0f, 1.0f, 1.0f, "", 2, "Off|On"},
+        {"grandon", "Grand", 0.0f, 1.0f, 0.0f, "", 2, "Off|On"},
+        {"balance", "Balance", 0.0f, 1.0f, 0.5f, "", 0, nullptr},
+        {"ghammer", "Grand Hammer", 0.0f, 1.0f, 0.5f, "", 0, nullptr},
+        {"gtone", "Grand Tone", 0.0f, 1.0f, 0.5f, "", 0, nullptr},
+        {"gres", "Resonance", 0.0f, 1.0f, 0.5f, "", 0, nullptr},
+        {"tinering", "Tine Ring", 0.0f, 1.0f, 0.0f, "", 0, nullptr},
+        {"gnoise", "Noises", 0.0f, 1.0f, 0.5f, "", 0, nullptr},
+        {"gwidth", "Width", 0.0f, 1.5f, 1.0f, "", 0, nullptr},
+        {"gcomp", "Comp", 0.0f, 1.0f, 0.0f, "", 0, nullptr},
     };
     return table[id];
 }
@@ -76,6 +97,7 @@ struct Preset {
 };
 
 int numPresets();
+int numTinePresets();     // the first programs: the tine instrument on its own
 const Preset& preset(int index);
 
 }  // namespace hk

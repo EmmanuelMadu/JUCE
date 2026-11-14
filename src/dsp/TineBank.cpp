@@ -16,6 +16,12 @@ void TineBank::prepare(double sampleRate) {
     engageCoef_ = 1.0 - std::exp(-kTick * T_ / 0.012);
     liftCoef_ = 1.0 - std::exp(-kTick * T_ / 0.004);
     restCoef_ = 1.0 - std::exp(-kTick * T_ / 0.008);
+    for (int i = 0; i < kNumKeys; ++i) {           // smooth run of the tuning table (+-6 keys)
+        double sum = 0;
+        int n = 0;
+        for (int j = std::max(0, i - 6); j <= std::min(kNumKeys - 1, i + 6); ++j) { sum += kKeyTable[j].cents; ++n; }
+        trend_[i] = sum / n;
+    }
     reset();
 }
 
@@ -27,7 +33,10 @@ void TineBank::reset() {
 
 void TineBank::configureKey(Key& k, const KeyParams& kp, int index) {
     const int note = index + kLowestNote;
-    const double cents = kp.cents * ctl_.detune;
+    // on its own the instrument keeps its measured tuning; next to the grand it follows the
+    // piano's stretch and keeps only its key-to-key scatter
+    const double cents = ctl_.stretch ? ctl_.stretch[index] + (kp.cents - trend_[index]) * ctl_.detune
+                                      : kp.cents * ctl_.detune;
     const double f1 = ctl_.tuneHz * std::pow(2.0, (note - 69) / 12.0 + cents / 1200.0);
     k.w1 = kTwoPi * f1 * T_;
     k.w2 = k.w1 * kp.r2;

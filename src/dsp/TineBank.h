@@ -31,6 +31,7 @@ struct TineControls {
     double gamma = 1.3;       // hammer speed = velocity^gamma
     double tuneHz = 440.0;
     double detune = 1.0;      // scales the per-key tuning deviations
+    const float* stretch = nullptr;   // per-key tuning (cents) to follow instead of the tines' own
 };
 
 class TineBank {
@@ -82,6 +83,7 @@ private:
     double fs_ = 48000.0, T_ = 1.0 / 48000.0;
     double pedal_ = 0.0;
     double engageCoef_ = 0.0, liftCoef_ = 0.0, restCoef_ = 0.0;
+    double trend_[kNumKeys] = {};
 };
 
 }  // namespace hk

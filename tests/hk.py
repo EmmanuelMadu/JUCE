@@ -29,12 +29,38 @@ _lib.hk_preset_name.argtypes = [ctypes.c_int]
 _lib.hk_preset_value.restype = ctypes.c_float
 _lib.hk_preset_value.argtypes = [ctypes.c_int, ctypes.c_int]
 
+HAS_GRAND = hasattr(_lib, "hk_grand_load")
+NUM_TINE_PRESETS = None
+if HAS_GRAND:
+    _lib.hk_grand_load.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+    _lib.hk_grand_load.restype = ctypes.c_int
+    _lib.hk_grand_verify.restype = ctypes.c_int
+    _lib.hk_grand_raw.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    _lib.hk_grand_raw.restype = None
+    for name in ("hk_sostenuto", "hk_soft"):
+        getattr(_lib, name).argtypes = [ctypes.c_void_p, ctypes.c_float]
+        getattr(_lib, name).restype = None
+    for name in ("hk_grand_voices", "hk_ringing_strings"):
+        getattr(_lib, name).argtypes = [ctypes.c_void_p]
+        getattr(_lib, name).restype = ctypes.c_int
+    NUM_TINE_PRESETS = _lib.hk_num_tine_presets()
+    _lib.hk_grand_key_cents.argtypes = [ctypes.c_int]
+    _lib.hk_grand_key_cents.restype = ctypes.c_float
+    _lib.hk_grand_partial.argtypes = [ctypes.c_int, ctypes.c_int]
+    _lib.hk_grand_partial.restype = ctypes.c_float
+GRAND_DIR = os.environ.get("HK_GRAND_DIR", "")
+
 NUM_PARAMS = _lib.hk_num_params()
 PARAM_IDS = [_lib.hk_param_id(i).decode() for i in range(NUM_PARAMS)]
 P = {name: i for i, name in enumerate(PARAM_IDS)}
 PARAM_RANGE = [(_lib.hk_param_min(i), _lib.hk_param_max(i), _lib.hk_param_default(i)) for i in range(NUM_PARAMS)]
 NUM_PRESETS = _lib.hk_num_presets()
 PRESET_NAMES = [_lib.hk_preset_name(i).decode() for i in range(NUM_PRESETS)]
+
+
+def grand_partial(note, n=1):
+    """Frequency (Hz, A = 440) of a partial of a key of the grand, from the engine's table."""
+    return float(_lib.hk_grand_partial(int(note), int(n)))
 
 
 def preset_values(i):
@@ -69,6 +95,28 @@ class Synth:
 
     def sustain(self, v):
         _lib.hk_sustain(self.h, float(v))
+
+    def sostenuto(self, v):
+        _lib.hk_sostenuto(self.h, float(v))
+
+    def soft(self, v):
+        _lib.hk_soft(self.h, float(v))
+
+    def load_grand(self, directory=None):
+        """Attach the grand piano recordings; returns False if they are not there."""
+        d = directory or GRAND_DIR
+        return bool(d) and bool(_lib.hk_grand_load(self.h, d.encode()))
+
+    def grand_raw(self, on=True):
+        _lib.hk_grand_raw(self.h, 1 if on else 0)
+
+    @property
+    def grand_voices(self):
+        return _lib.hk_grand_voices(self.h)
+
+    @property
+    def ringing_strings(self):
+        return _lib.hk_ringing_strings(self.h)
 
     def all_notes_off(self):
         _lib.hk_all_notes_off(self.h)

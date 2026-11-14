@@ -1,5 +1,8 @@
-# Builds Hearth Keys for macOS (Apple Silicon + Intel), tests it on a real Mac and
-# publishes the result as a downloadable build.
+# Builds Hearth Keys for macOS (Apple Silicon + Intel), installs it the way a user would,
+# tests it on a real Mac and publishes the result as a downloadable build.
+#
+# The grand piano's recordings are published once as their own release ("grand-pack-v1"):
+# the first job rebuilds them from the source recordings if that release does not exist yet.
 name: Build
 
 on:
@@ -14,8 +17,59 @@ concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  GH_TOKEN: ${{ github.token }}
+
 jobs:
+  pack:
+    name: Grand piano recordings
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Is the pack already published?
+        id: have
+        run: |
+          if gh api "repos/$GITHUB_REPOSITORY/releases/tags/grand-pack-v1" --jq '.assets[].name' 2>/dev/null | grep -qx "HearthKeys-Grand-v1.zip"; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fetch the source recordings (Salamander Grand Piano V3)
+        if: steps.have.outputs.published != 'true'
+        run: |
+          mkdir salamander && cd salamander
+          git init -q
+          git remote add origin https://github.com/sfzinstruments/SalamanderGrandPiano.git
+          git fetch -q --depth 1 origin 3382bf9496bba2486f5ab0de55a264d1dfc38404
+          git checkout -q FETCH_HEAD
+          ls Samples | wc -l
+
+      - name: Build the pack and compare it with the checksums in the repository
+        if: steps.have.outputs.published != 'true'
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet numpy soundfile
+          mkdir -p pack/HearthKeys-Grand-v1
+          .venv/bin/python tools/grand/make_pack.py build salamander tools/grand/recipe.json pack/HearthKeys-Grand-v1 --check
+          cp tools/grand/CREDITS.txt pack/HearthKeys-Grand-v1/CREDITS.txt
+          cp salamander/LICENSE pack/HearthKeys-Grand-v1/LICENSE-CC-BY-3.0.txt
+          (cd pack && zip -q -0 -r HearthKeys-Grand-v1.zip HearthKeys-Grand-v1)
+          ls -la pack/HearthKeys-Grand-v1.zip
+
+      - name: Publish the pack
+        if: steps.have.outputs.published != 'true'
+        run: |
+          gh release delete grand-pack-v1 --yes --cleanup-tag 2>/dev/null || true
+          gh release create grand-pack-v1 pack/HearthKeys-Grand-v1.zip \
+            --title "Grand piano recordings (pack 1)" --latest=false --target "$GITHUB_SHA" \
+            --notes "Recordings for the grand piano in Hearth Keys: a processed copy of the Salamander Grand Piano V3 by Alexander Holm (CC BY 3.0). The installer downloads this file by itself; there is no need to download it by hand."
+
   macos:
+    name: Build and test on a Mac
+    needs: pack
     runs-on: macos-latest
     timeout-minutes: 60
     steps:
@@ -27,17 +81,6 @@ jobs:
       - name: Build
         run: cmake --build build --config Release --parallel 3 --target HearthKeys_VST3 HearthKeys_AU HearthKeys_Standalone hk_snapshot hk
 
-      - name: Engine tests
-        run: |
-          python3 -m venv .venv
-          .venv/bin/pip install --quiet numpy
-          HK_LIB="$PWD/build/libhk.dylib" .venv/bin/python tests/run_tests.py
-
-      - name: Render the interface
-        run: |
-          ./build/hk_snapshot "$PWD/interface.png" 1 2.0 60,64,67
-          ./build/hk_snapshot "$PWD/interface-small.png" 2 1.0
-
       - name: Check architectures and sign
         run: |
           A="build/HearthKeys_artefacts/Release"
@@ -48,21 +91,6 @@ jobs:
             codesign --verify --deep --strict "$b"
           done
 
-      - name: Validate the VST3 (pluginval)
-        run: |
-          curl -sSL -o pluginval.zip https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_macOS.zip
-          unzip -q pluginval.zip
-          ./pluginval.app/Contents/MacOS/pluginval --strictness-level 8 --validate-in-process --timeout-ms 600000 \
-            --output-dir pluginval-logs "build/HearthKeys_artefacts/Release/VST3/Hearth Keys.vst3"
-
-      - name: Validate the Audio Unit (auval)
-        run: |
-          mkdir -p "$HOME/Library/Audio/Plug-Ins/Components"
-          cp -R "build/HearthKeys_artefacts/Release/AU/Hearth Keys.component" "$HOME/Library/Audio/Plug-Ins/Components/"
-          killall -9 AudioComponentRegistrar 2>/dev/null || true
-          sleep 2
-          auval -v aumu HrKy Hmde
-
       - name: Package
         run: |
           A="build/HearthKeys_artefacts/Release"
@@ -72,6 +100,42 @@ jobs:
           cp docs/INSTALL.txt "dist/Hearth Keys/READ ME FIRST.txt"
           (cd dist && ditto -c -k --keepParent "Hearth Keys" HearthKeys-macOS.zip)
 
+      - name: Install the way a user does (downloads and prepares the recordings)
+        run: |
+          mkdir -p unzipped && ditto -x -k dist/HearthKeys-macOS.zip unzipped
+          HK_REPO="$GITHUB_REPOSITORY" bash "unzipped/Hearth Keys/install_mac.sh"
+          test -f "$HOME/Library/Application Support/Hearth Keys/Grand-v1/.complete"
+          ls "$HOME/Library/Application Support/Hearth Keys/Grand-v1" | wc -l
+          du -sh "$HOME/Library/Application Support/Hearth Keys/Grand-v1"
+          bash "unzipped/Hearth Keys/install_mac.sh" | grep "already installed"
+          ls "$HOME/Library/Audio/Plug-Ins/Components" "$HOME/Library/Audio/Plug-Ins/VST3"
+
+      - name: Engine tests (tines and grand, with the installed recordings)
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet numpy scipy
+          HK_LIB="$PWD/build/libhk.dylib" HK_GRAND_DIR="$HOME/Library/Application Support/Hearth Keys/Grand-v1" \
+            .venv/bin/python tests/run_tests.py
+
+      - name: Render the interface
+        run: |
+          ./build/hk_snapshot "$PWD/interface.png" 12 2.0 60,64,67
+          ./build/hk_snapshot "$PWD/interface-tines.png" 1 2.0 -
+          ./build/hk_snapshot "$PWD/interface-small.png" 20 1.0 - grand
+
+      - name: Validate the VST3 (pluginval)
+        run: |
+          curl -sSL -o pluginval.zip https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_macOS.zip
+          unzip -q pluginval.zip
+          ./pluginval.app/Contents/MacOS/pluginval --strictness-level 8 --validate-in-process --timeout-ms 600000 \
+            --output-dir pluginval-logs "$HOME/Library/Audio/Plug-Ins/VST3/Hearth Keys.vst3"
+
+      - name: Validate the Audio Unit (auval)
+        run: |
+          killall -9 AudioComponentRegistrar 2>/dev/null || true
+          sleep 2
+          auval -v aumu HrKy Hmde
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -79,15 +143,14 @@ jobs:
           path: |
             dist/HearthKeys-macOS.zip
             interface.png
+            interface-tines.png
             interface-small.png
             pluginval-logs
 
       - name: Publish as the latest build
         if: success()
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete latest --yes --cleanup-tag 2>/dev/null || true
-          gh release create latest dist/HearthKeys-macOS.zip interface.png \
+          gh release create latest dist/HearthKeys-macOS.zip interface.png interface-tines.png \
             --title "Latest build" --prerelease --target "$GITHUB_SHA" \
-            --notes "Automatic build of commit $GITHUB_SHA. Unzip, then run install_mac.sh from Terminal (see READ ME FIRST.txt)."
+            --notes "Automatic build of commit $GITHUB_SHA. Unzip, then run install_mac.sh from Terminal (see READ ME FIRST.txt). The installer also fetches the grand piano's recordings (about 270 MB, once)."

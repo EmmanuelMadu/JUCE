@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(HearthKeys VERSION 0.1.0 LANGUAGES C CXX)
+project(HearthKeys VERSION 0.2.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -30,7 +30,11 @@ endif()
 
 set(HK_DSP_SOURCES
     src/dsp/Engine.cpp
+    src/dsp/GrandBank.cpp
+    src/dsp/GrandPack.cpp
+    src/dsp/GrandTable.cpp
     src/dsp/KeyTable.cpp
+    src/dsp/StringBank.cpp
     src/dsp/TineBank.cpp)
 
 juce_add_plugin(HearthKeys

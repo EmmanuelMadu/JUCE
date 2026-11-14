@@ -139,7 +139,7 @@ void Knob::paint(juce::Graphics& g) {
     auto text = area.removeFromBottom(30);
     g.setColour(kCream);
     g.setFont(font(12.0f, true, 0.06f));
-    g.drawText(label_.toUpperCase(), text.removeFromTop(16), juce::Justification::centred, false);
+    g.drawFittedText(label_.toUpperCase(), text.removeFromTop(16), juce::Justification::centred, 1, 0.8f);
     g.setColour(slider.isMouseOverOrDragging() ? kAmber : kDim);
     g.setFont(font(11.0f));
     g.drawText(slider.getTextFromValue(slider.getValue()), text, juce::Justification::centredTop, false);
@@ -167,6 +167,56 @@ void AmpSwitch::resized() {
     for (int i = 0; i < 3; ++i) {
         buttons_[i].setBounds(area.removeFromTop(h));
         area.removeFromTop(4);
+    }
+}
+
+// ------------------------------------------------------- page tabs and lights ----
+PowerButton::PowerButton(juce::AudioProcessorValueTreeState& state, const juce::String& paramId, const juce::String& title)
+    : attachment_(*state.getParameter(paramId), [this](float v) {
+          on_ = v > 0.5f;
+          repaint();
+      }) {
+    setTitle(title);
+    setMouseCursor(juce::MouseCursor::PointingHandCursor);
+    attachment_.sendInitialUpdate();
+}
+
+void PowerButton::paint(juce::Graphics& g) {
+    const auto r = getLocalBounds().toFloat().withSizeKeepingCentre(11.0f, 11.0f);
+    if (on_) {
+        g.setColour(kAmber.withAlpha(0.25f));
+        g.fillEllipse(r.expanded(3.0f));
+    }
+    g.setColour(on_ ? kAmber : juce::Colour(0xff2a221e));
+    g.fillEllipse(r);
+    g.setColour(on_ ? kAmber.brighter(0.4f) : kDim);
+    g.drawEllipse(r, 1.2f);
+}
+
+void PowerButton::mouseUp(const juce::MouseEvent& e) {
+    if (getLocalBounds().contains(e.getPosition())) attachment_.setValueAsCompleteGesture(on_ ? 0.0f : 1.0f);
+}
+
+TabLabel::TabLabel(const juce::String& text) : text_(text) {
+    setTitle(text);
+    setMouseCursor(juce::MouseCursor::PointingHandCursor);
+}
+
+void TabLabel::paint(juce::Graphics& g) {
+    g.setColour(selected_ ? kAmber : (isMouseOver() ? kMuted : kDim));
+    g.setFont(font(11.0f, true, 0.22f));
+    g.drawText(text_, getLocalBounds(), juce::Justification::centredLeft, false);
+    if (selected_) g.fillRect(0, getHeight() - 3, juce::jmax(8, getWidth() - 8), 2);
+}
+
+void TabLabel::mouseUp(const juce::MouseEvent& e) {
+    if (getLocalBounds().contains(e.getPosition()) && onClick) onClick();
+}
+
+void TabLabel::setSelected(bool selected) {
+    if (selected != selected_) {
+        selected_ = selected;
+        repaint();
     }
 }
 
@@ -226,23 +276,56 @@ void Keyboard::drawBlackNote(int, juce::Graphics& g, juce::Rectangle<float> area
 }
 
 // -------------------------------------------------------------------- panel ----
-HearthPanel::HearthPanel(HearthProcessor& p) : processor_(p), amp_(p.apvts), keyboard_(p.keyboardState) {
+HearthPanel::HearthPanel(HearthProcessor& p)
+    : processor_(p), amp_(p.apvts), tinesPower_(p.apvts, "tineson", "Tines on"), grandPower_(p.apvts, "grandon", "Grand on"),
+      keyboard_(p.keyboardState) {
     setLookAndFeel(&look_);
-    struct Def { const char* id; const char* label; bool bipolar; };
-    static const Def defs[] = {
-        {"bark", "Bark", false},        {"timbre", "Timbre", false},     {"hammer", "Hammer", false},   {"bell", "Bell", false},
-        {"thump", "Thump", false},      {"sustain", "Sustain", false},   {"damper", "Damper", false},   {"dynamics", "Dynamics", false},
-        {"tune", "Tune", true},         {"detune", "Detune", false},     {"volume", "Volume", false},
-        {"bass", "Bass", true},         {"treble", "Treble", true},      {"drive", "Drive", false},
-        {"tremrate", "Rate", false},    {"tremdepth", "Depth", false},   {"tremstereo", "Stereo", false},
-        {"chorus", "Mix", false},       {"chorusrate", "Rate", false},
-        {"phaser", "Mix", false},       {"phaserrate", "Rate", false},
-        {"reverb", "Mix", false},       {"reverbsize", "Size", false},
+    auto make = [this, &p](Group& group, const char* id, const char* label, int size, bool bipolar = false) {
+        auto* k = knobs_.add(new Knob(p.apvts, id, label, bipolar));
+        k->maxSize = size;
+        addAndMakeVisible(k);
+        group.push_back(k);
     };
-    for (const auto& d : defs) addAndMakeVisible(knobs_.add(new Knob(p.apvts, d.id, d.label, d.bipolar)));
+    for (auto d : {std::pair{"bark", "Bark"}, {"timbre", "Timbre"}, {"hammer", "Hammer"}, {"bell", "Bell"}, {"thump", "Thump"}, {"sustain", "Sustain"}})
+        make(tineKnobs_, d.first, d.second, 70);
+    for (auto d : {std::pair{"ghammer", "Hammer"}, {"gtone", "Tone"}, {"gres", "Resonance"}, {"tinering", "Tine Ring"}, {"gnoise", "Noises"},
+                   {"gwidth", "Width"}, {"gcomp", "Comp"}})
+        make(grandKnobs_, d.first, d.second, 70, juce::String(d.first) == "gtone" || juce::String(d.first) == "ghammer");
+    make(touchKnobs_, "dynamics", "Dynamics", 70);
+    make(touchKnobs_, "damper", "Damper", 70);
+    make(masterKnobs_, "tune", "Tune", 70, true);
+    make(masterKnobs_, "detune", "Detune", 70);
+    make(masterKnobs_, "balance", "Balance", 70, true);
+    make(masterKnobs_, "volume", "Volume", 70);
+    make(ampKnobs_, "bass", "Bass", 62, true);
+    make(ampKnobs_, "treble", "Treble", 62, true);
+    make(ampKnobs_, "drive", "Drive", 62);
+    make(tremKnobs_, "tremrate", "Rate", 62);
+    make(tremKnobs_, "tremdepth", "Depth", 62);
+    make(tremKnobs_, "tremstereo", "Stereo", 62);
+    make(chorusKnobs_, "chorus", "Mix", 62);
+    make(chorusKnobs_, "chorusrate", "Rate", 62);
+    make(phaserKnobs_, "phaser", "Mix", 62);
+    make(phaserKnobs_, "phaserrate", "Rate", 62);
+    make(reverbKnobs_, "reverb", "Mix", 62);
+    make(reverbKnobs_, "reverbsize", "Size", 62);
     addAndMakeVisible(amp_);
+    for (auto* c : {static_cast<juce::Component*>(&tinesPower_), static_cast<juce::Component*>(&grandPower_),
+                    static_cast<juce::Component*>(&tinesTab_), static_cast<juce::Component*>(&grandTab_)})
+        addAndMakeVisible(c);
+    tinesTab_.onClick = [this] { showPage(0); };
+    grandTab_.onClick = [this] { showPage(1); };
 
-    for (int i = 0; i < hk::numPresets(); ++i) presetBox_.addItem(hk::preset(i).name, i + 1);
+    int lastGroup = -1;
+    for (int i = 0; i < hk::numPresets(); ++i) {
+        const hk::Preset& pr = hk::preset(i);
+        const bool tines = pr.v[hk::kTinesOn] > 0.5f, grand = pr.v[hk::kGrandOn] > 0.5f;
+        const int group = grand ? (tines ? 2 : 1) : (i < hk::numTinePresets() ? 0 : 2);
+        static const char* headings[3] = {"TINES", "GRAND", "TOGETHER"};
+        if (i == 0 || group != lastGroup) presetBox_.addSectionHeading(headings[group]);
+        lastGroup = group;
+        presetBox_.addItem(pr.name, i + 1);
+    }
     presetBox_.setSelectedItemIndex(p.getCurrentProgram(), juce::dontSendNotification);
     presetBox_.onChange = [this] { processor_.loadPreset(presetBox_.getSelectedItemIndex()); };
     presetBox_.setTitle("Preset");
@@ -258,7 +341,45 @@ HearthPanel::HearthPanel(HearthProcessor& p) : processor_(p), amp_(p.apvts), key
     addAndMakeVisible(meter_);
     addAndMakeVisible(keyboard_);
     setSize(kWidth, kHeight);
+    lastProgram_ = processor_.getCurrentProgram();
+    grandState_ = processor_.grandState.load();
+    tinesOn_ = tinesPower_.isOn();
+    grandOn_ = grandPower_.isOn();
+    showPage(grandOn_ && !tinesOn_ ? 1 : 0);
     startTimerHz(30);
+}
+
+void HearthPanel::showPage(int page) {
+    page_ = page;
+    tinesTab_.setSelected(page == 0);
+    grandTab_.setSelected(page == 1);
+    refresh();
+}
+
+// A program that uses one instrument only brings its page to the front.
+void HearthPanel::pageForProgram() {
+    if (grandOn_ && !tinesOn_) showPage(1);
+    else if (tinesOn_ && !grandOn_) showPage(0);
+}
+
+void HearthPanel::refresh() {
+    const bool recordings = grandState_ == HearthProcessor::grandReady || grandState_ == HearthProcessor::grandDamaged;
+    const float off = 0.38f;
+    for (auto* k : tineKnobs_) {
+        k->setVisible(page_ == 0);
+        k->setAlpha(tinesOn_ ? 1.0f : off);
+    }
+    for (auto* k : grandKnobs_) {
+        k->setVisible(page_ == 1 && recordings);
+        k->setAlpha(grandOn_ ? 1.0f : off);
+    }
+    grandKnobs_[3]->setAlpha(tinesOn_ ? 1.0f : off);          // tine ring needs the tines, not the grand's keys
+    for (auto* group : {&ampKnobs_, &tremKnobs_, &chorusKnobs_, &phaserKnobs_})
+        for (auto* k : *group) k->setAlpha(tinesOn_ ? 1.0f : off);
+    amp_.setAlpha(tinesOn_ ? 1.0f : off);
+    masterKnobs_[1]->setAlpha(tinesOn_ ? 1.0f : off);         // detune is the tines' key-to-key spread
+    masterKnobs_[2]->setAlpha(tinesOn_ && grandOn_ ? 1.0f : off);
+    repaint();
 }
 
 HearthPanel::~HearthPanel() {
@@ -275,6 +396,24 @@ void HearthPanel::timerCallback() {
     meter_.setLevels(processor_.meterL.load(), processor_.meterR.load());
     if (presetBox_.getSelectedItemIndex() != processor_.getCurrentProgram() && !presetBox_.isPopupActive())
         presetBox_.setSelectedItemIndex(processor_.getCurrentProgram(), juce::dontSendNotification);
+
+    const int state = processor_.grandState.load();
+    const bool tines = tinesPower_.isOn(), grand = grandPower_.isOn();
+    const bool changed = state != grandState_ || tines != tinesOn_ || grand != grandOn_;
+    grandState_ = state;
+    tinesOn_ = tines;
+    grandOn_ = grand;
+    if (processor_.getCurrentProgram() != lastProgram_) {
+        lastProgram_ = processor_.getCurrentProgram();
+        pageForProgram();
+    } else if (changed) {
+        refresh();
+    }
+    // recordings installed while the plugin is open are picked up without reloading it
+    if (state == HearthProcessor::grandMissing && ++retry_ >= 90) {
+        retry_ = 0;
+        processor_.findGrand();
+    }
 }
 
 void HearthPanel::section(juce::Graphics& g, juce::Rectangle<int> area, const juce::String& title) const {
@@ -308,11 +447,39 @@ void HearthPanel::paint(juce::Graphics& g) {
     g.drawText("KEYS", 158, 10, 120, 30, juce::Justification::centredLeft, false);
     g.setFont(font(10.0f, true, 0.3f));
     g.setColour(kRailInk.withAlpha(0.7f));
-    g.drawText("TINE ELECTRIC PIANO", 27, 38, 260, 14, juce::Justification::centredLeft, false);
+    g.drawText("TINES AND GRAND PIANO", 27, 38, 260, 14, juce::Justification::centredLeft, false);
     g.drawText("OUT", kWidth - 150, 24, 30, 14, juce::Justification::centredLeft, false);
 
-    section(g, secTines_, "TINES");
+    section(g, secInst_, {});
+    section(g, secTouch_, "TOUCH");
     section(g, secMaster_, "MASTER");
+    if (page_ == 1) {
+        const bool recordings = grandState_ == HearthProcessor::grandReady || grandState_ == HearthProcessor::grandDamaged;
+        const auto header = secInst_.withHeight(26).withTrimmedLeft(200).withTrimmedRight(14);
+        g.setFont(font(9.5f, true, 0.14f));
+        if (grandState_ == HearthProcessor::grandDamaged) {
+            g.setColour(kEmber);
+            g.drawText("RECORDINGS DAMAGED - RUN THE INSTALLER AGAIN", header, juce::Justification::centredRight, false);
+        } else if (recordings) {
+            g.setColour(kDim);
+            g.drawText("RECORDINGS: SALAMANDER GRAND PIANO, A. HOLM", header, juce::Justification::centredRight, false);
+        }
+        if (!recordings) {
+            auto body = secInst_.withTrimmedTop(40).withTrimmedBottom(20).reduced(24, 0);
+            const bool looking = grandState_ == HearthProcessor::grandSearching;
+            g.setColour(kCream);
+            g.setFont(font(16.0f, true));
+            g.drawText(looking ? "Looking for the grand's recordings..." : "The grand's recordings are not installed yet",
+                       body.removeFromTop(body.getHeight() / 2), juce::Justification::centredBottom, false);
+            if (!looking) {
+                g.setColour(kMuted);
+                g.setFont(font(12.5f));
+                g.drawFittedText("Run install_mac.sh from the download once more: it fetches them (about 270 MB).\n"
+                                 "The piano appears here by itself when they are in place.",
+                                 body.withTrimmedTop(6), juce::Justification::centredTop, 2);
+            }
+        }
+    }
     section(g, secAmp_, "AMP");
     section(g, secTrem_, "TREMOLO");
     section(g, secChorus_, "CHORUS");
@@ -335,8 +502,9 @@ void HearthPanel::resized() {
     meter_.setBounds(kWidth - 118, 23, 94, 17);
 
     const int row1 = 74, rowH = 158, row2 = row1 + rowH + gap;
-    secTines_ = {margin, row1, 706, rowH};
-    secMaster_ = {secTines_.getRight() + gap, row1, kWidth - margin - secTines_.getRight() - gap, rowH};
+    secInst_ = {margin, row1, 520, rowH};
+    secTouch_ = {secInst_.getRight() + gap, row1, 160, rowH};
+    secMaster_ = {secTouch_.getRight() + gap, row1, kWidth - margin - secTouch_.getRight() - gap, rowH};
     // second row: every knob gets the same cell, so sections are as wide as their contents
     const int cell = 66, pad = 16, switchW = 106;
     secAmp_ = {margin, row2, pad + switchW + 3 * cell, rowH};
@@ -345,25 +513,34 @@ void HearthPanel::resized() {
     secChorus_ = {secTrem_.getRight() + gap, row2, rest, rowH};
     secPhaser_ = {secChorus_.getRight() + gap, row2, rest, rowH};
     secReverb_ = {secPhaser_.getRight() + gap, row2, kWidth - margin - secPhaser_.getRight() - gap, rowH};
-    for (int i = 11; i < knobs_.size(); ++i) knobs_[i]->maxSize = 62;
 
-    auto place = [this](juce::Rectangle<int> sec, int first, int count, int leftInset = 0) {
-        auto area = sec.withTrimmedTop(28).withTrimmedBottom(8).withTrimmedLeft(8 + leftInset).withTrimmedRight(8);
-        const int w = area.getWidth() / count;
-        for (int i = 0; i < count; ++i) knobs_[first + i]->setBounds(area.removeFromLeft(w).reduced(1, 0));
-    };
-    place(secTines_, 0, 8);
-    place(secMaster_, 8, 3);
+    // page tabs in the header of the instrument section, each with its on/off light
+    const int hy = row1 + 3;
+    tinesPower_.setBounds(secInst_.getX() + 8, hy, 22, 22);
+    tinesTab_.setBounds(tinesPower_.getRight(), hy, 62, 22);
+    grandPower_.setBounds(tinesTab_.getRight() + 6, hy, 22, 22);
+    grandTab_.setBounds(grandPower_.getRight(), hy, 62, 22);
+
+    place(secInst_, tineKnobs_);
+    place(secInst_, grandKnobs_);
+    place(secTouch_, touchKnobs_);
+    place(secMaster_, masterKnobs_);
     amp_.setBounds(secAmp_.getX() + 12, secAmp_.getY() + 44, switchW - 10, 88);
-    place(secAmp_, 11, 3, switchW);
-    place(secTrem_, 14, 3);
-    place(secChorus_, 17, 2);
-    place(secPhaser_, 19, 2);
-    place(secReverb_, 21, 2);
+    place(secAmp_, ampKnobs_, switchW);
+    place(secTrem_, tremKnobs_);
+    place(secChorus_, chorusKnobs_);
+    place(secPhaser_, phaserKnobs_);
+    place(secReverb_, reverbKnobs_);
 
     const int keysTop = row2 + rowH + 26;
     keyboard_.setBounds(margin, keysTop, kWidth - 2 * margin, kHeight - keysTop - 14);
     keyboard_.setKeyWidth(static_cast<float>(keyboard_.getWidth()) / 52.0f);
+}
+
+void HearthPanel::place(juce::Rectangle<int> sec, const Group& group, int leftInset) {
+    auto area = sec.withTrimmedTop(28).withTrimmedBottom(8).withTrimmedLeft(8 + leftInset).withTrimmedRight(8);
+    const int w = area.getWidth() / static_cast<int>(group.size());
+    for (auto* k : group) k->setBounds(area.removeFromLeft(w).reduced(1, 0));
 }
 
 // ------------------------------------------------------------------- editor ----

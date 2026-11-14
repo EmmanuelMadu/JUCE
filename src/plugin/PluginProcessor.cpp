@@ -36,11 +36,68 @@ juce::AudioProcessorValueTreeState::ParameterLayout HearthProcessor::createLayou
     return layout;
 }
 
+// Finds the recordings, hands them to the engine (which can play them at once) and then
+// reads through them: that checks every sample and brings the pack into memory.
+class HearthProcessor::GrandLoader final : public juce::Thread {
+public:
+    explicit GrandLoader(HearthProcessor& p) : juce::Thread("Hearth Keys recordings"), owner_(p) {}
+    ~GrandLoader() override {
+        cancel_.store(true);
+        stopThread(20000);          // the thread looks at cancel_ every few milliseconds of work
+    }
+    void run() override {
+        juce::Array<juce::File> places;
+        const juce::String env = juce::SystemStats::getEnvironmentVariable("HK_GRAND_DIR", {});
+        if (env.isNotEmpty()) places.add(juce::File(env));
+        places.add(grandFolder());
+#if JUCE_MAC
+        places.add(juce::File("/Library/Application Support/Hearth Keys").getChildFile(grandFolder().getFileName()));
+#endif
+        for (const auto& dir : places) {
+            if (threadShouldExit()) return;
+            std::string error;
+            if (auto pack = hk::GrandPack::open(dir.getFullPathName().toStdString(), error, &cancel_)) {
+                owner_.pack_ = pack;
+                owner_.engine_.setGrandPack(pack.get());
+                owner_.grandState.store(grandReady);
+                const int intact = pack->verify(&owner_.grandProgress, &cancel_);
+                if (intact == 0) owner_.grandState.store(grandDamaged);
+                return;
+            }
+        }
+        owner_.grandState.store(grandMissing);
+    }
+
+private:
+    HearthProcessor& owner_;
+    std::atomic<bool> cancel_{false};
+};
+
+juce::File HearthProcessor::grandFolder() {
+    auto base = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory);
+#if JUCE_MAC
+    base = base.getChildFile("Application Support");
+#endif
+    return base.getChildFile("Hearth Keys").getChildFile("Grand-v" + juce::String(hk::kGrandPackVersion));
+}
+
+void HearthProcessor::findGrand() {
+    if (loader_ != nullptr && loader_->isThreadRunning()) return;
+    if (pack_ != nullptr) return;
+    loader_.reset();
+    grandState.store(grandSearching);
+    loader_ = std::make_unique<GrandLoader>(*this);
+    loader_->startThread();
+}
+
 HearthProcessor::HearthProcessor()
     : juce::AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       apvts(*this, nullptr, "HearthKeys", createLayout()) {
     for (int i = 0; i < hk::kNumParams; ++i) raw_[i] = apvts.getRawParameterValue(hk::paramInfo(i).id);
+    findGrand();
 }
+
+HearthProcessor::~HearthProcessor() { loader_.reset(); }
 
 void HearthProcessor::prepareToPlay(double sampleRate, int) {
     engine_.prepare(sampleRate);
@@ -55,7 +112,9 @@ bool HearthProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const {
 void HearthProcessor::handleMidi(const juce::MidiMessage& m) {
     if (m.isNoteOn()) engine_.noteOn(m.getNoteNumber(), m.getFloatVelocity());
     else if (m.isNoteOff()) engine_.noteOff(m.getNoteNumber());
-    else if (m.isSustainPedalOn() || m.isSustainPedalOff() || m.isControllerOfType(64)) engine_.sustain(static_cast<float>(m.getControllerValue()) / 127.0f);
+    else if (m.isControllerOfType(64)) engine_.sustain(static_cast<float>(m.getControllerValue()) / 127.0f);
+    else if (m.isControllerOfType(66)) engine_.sostenuto(static_cast<float>(m.getControllerValue()) / 127.0f);
+    else if (m.isControllerOfType(67)) engine_.softPedal(static_cast<float>(m.getControllerValue()) / 127.0f);
     else if (m.isAllNotesOff()) engine_.allNotesOff();
     else if (m.isAllSoundOff()) engine_.allSoundOff();
 }

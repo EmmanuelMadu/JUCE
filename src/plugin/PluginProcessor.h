@@ -8,7 +8,7 @@
 class HearthProcessor final : public juce::AudioProcessor {
 public:
     HearthProcessor();
-    ~HearthProcessor() override = default;
+    ~HearthProcessor() override;
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
     void releaseResources() override {}
@@ -36,6 +36,13 @@ public:
 
     void loadPreset(int index);
 
+    // The grand's recordings are looked for and checked on a background thread.
+    enum GrandState { grandSearching = 0, grandReady, grandMissing, grandDamaged };
+    std::atomic<int> grandState{grandSearching};
+    std::atomic<float> grandProgress{0.0f};
+    void findGrand();                           // look (again) for the recordings; message thread
+    static juce::File grandFolder();            // where the installer puts them
+
     juce::AudioProcessorValueTreeState apvts;
     juce::MidiKeyboardState keyboardState;
     std::atomic<float> meterL{0.0f}, meterR{0.0f};
@@ -45,7 +52,10 @@ private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
     void handleMidi(const juce::MidiMessage& m);
 
+    class GrandLoader;
+    std::shared_ptr<hk::GrandPack> pack_;       // declared before the engine: outlives its use
     hk::Engine engine_;
+    std::unique_ptr<juce::Thread> loader_;
     std::atomic<float>* raw_[hk::kNumParams] = {};
     int program_ = 0;
 

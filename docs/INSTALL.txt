@@ -2,27 +2,44 @@ Hearth Keys - installing on a Mac
 =================================
 
 1. Unzip the download. You get a folder called "Hearth Keys".
-2. Open Terminal (Applications > Utilities > Terminal) and type:
+2. Open Terminal (Applications > Utilities > Terminal) and type these two
+   lines, pressing Return after each:
 
        cd ~/Downloads/"Hearth Keys"
        bash install_mac.sh
 
-   (If you unzipped it somewhere else, drag the folder onto the Terminal
-   window after typing "cd " instead of typing the path.)
+   (If you unzipped it somewhere else, type "cd " and drag the folder onto
+   the Terminal window instead of typing the path.)
 
-3. Restart your DAW and rescan plug-ins. Hearth Keys appears as an instrument:
-   Audio Unit for Logic Pro and GarageBand, VST3 for Ableton Live, FL Studio,
-   Cubase, Reaper, Studio One and others.
+   The script installs the plug-ins and then downloads the recordings of the
+   grand piano: about 270 MB, once. Wait for the line that starts with
+   "Done." before closing the window.
 
-The script copies the plug-ins into your own Library folder, removes the
-"downloaded from the internet" flag and signs them for this computer. It does
-not need an administrator password. The builds are not notarised by Apple,
-which is why this step is needed.
+3. Quit and reopen Logic. Hearth Keys appears as an instrument:
+   AU Instruments > Homemade > Hearth Keys > Stereo.
+   (It is also a VST3 for Ableton Live, FL Studio, Cubase, Reaper and others.)
+
+Updating: download the new zip and do the same two lines again. The
+recordings are kept; only the plug-ins are replaced.
+
+What the script does: it copies the plug-ins into your own Library folder,
+removes the "downloaded from the internet" flag and signs them for this
+computer; it puts the recordings (about 1.3 GB unpacked) in
+~/Library/Application Support/Hearth Keys. No administrator password is
+needed. The builds are not notarised by Apple, which is why this step exists.
+
+No internet at the moment? The tine piano works without the recordings. Run
+the script again later and it fetches them; a Logic project that is open
+picks the grand up within a few seconds.
 
 "Hearth Keys.app" in the same folder is a standalone version: after running
 the script you can open it directly to play without a DAW (choose your MIDI
 keyboard under Options > Audio/MIDI Settings).
 
+Pedals: sustain (CC 64, half-pedalling with a continuous pedal), sostenuto
+(CC 66) and soft pedal (CC 67).
+
 To remove Hearth Keys, delete:
     ~/Library/Audio/Plug-Ins/VST3/Hearth Keys.vst3
     ~/Library/Audio/Plug-Ins/Components/Hearth Keys.component
+    ~/Library/Application Support/Hearth Keys
