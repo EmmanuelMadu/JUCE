@@ -3,9 +3,10 @@
 // them and the operating system keeps in RAM only what is being played.
 //
 // The audio thread must not wait for the disk.  Two things see to that: the
-// first half second of every recording is kept in ordinary memory, and when
-// a note starts a helper thread brings the rest of its recording in, a
-// stretch at a time and always ahead of the playing position.
+// first second of every recording is kept in ordinary memory (about 100 MB),
+// and when a note starts a helper thread asks the system for the rest of its
+// recording at once and then walks through it, a stretch at a time and in
+// turn with the other notes, ahead of the playing position.
 #pragma once
 
 #include <atomic>
@@ -39,7 +40,7 @@ public:
     void prefetch(int file) const {
         if (headFrames_[file] < kGrandFile[file].frames) want_[file].store(1, std::memory_order_relaxed);
     }
-    static constexpr uint32_t kHeadFrames = 24000;      // half a second
+    static constexpr uint32_t kHeadFrames = 48000;      // one second
     const std::string& directory() const { return dir_; }
 
     // Reads every sample once -- which also brings the whole pack into memory -- and

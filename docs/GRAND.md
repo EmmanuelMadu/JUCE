@@ -20,6 +20,12 @@ and played back at its original level. The build uses exact arithmetic only
 and is bit-identical on every machine; the plug-in verifies the installed
 files against checksums. 1.31 GB as PCM, 276 MB to download.
 
+The installed files are mapped into memory, not loaded: the system keeps in
+RAM what is being played. So that the audio thread never waits for the disk,
+the first second of every recording is held in ordinary memory (about
+100 MB), and a helper thread brings in the rest of a recording when its note
+starts, ahead of the playing position.
+
 ## Measured from the recordings (`measure.py`, `make_table.py`)
 
 - **Loudness of every strike**: K-weighted level of the first 200 ms. The 16

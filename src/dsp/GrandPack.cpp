@@ -128,20 +128,36 @@ std::shared_ptr<GrandPack> GrandPack::open(const std::string& dir, std::string& 
     return pack;
 }
 
-// Brings requested recordings into memory, a stretch at a time and in turn, so that every
-// note that has just started gets its next second or so before any gets the rest.
+// Brings requested recordings into memory.  A new request is first announced to the system
+// as a whole (it starts reading in the background, for all requests side by side); then the
+// helper walks through the recordings a stretch at a time and in turn, so that every note
+// that has just started has its next second or so in memory before any has the rest.
 void GrandPack::helper() {
     struct Job { int file; size_t at, end; };
     std::vector<Job> jobs;
     const size_t kStretch = 256 * 1024;                 // bytes per turn: 1.4 s of sound
+#if HK_HAVE_MMAP
+    const size_t page = size_t(::sysconf(_SC_PAGESIZE));
+#endif
+    auto announce = [&](const Job& j) {
+#if HK_HAVE_MMAP
+        if (maps_[j.file].heap) return;
+        const unsigned char* p = reinterpret_cast<const unsigned char*>(maps_[j.file].pcm) + j.at;
+        const size_t lead = reinterpret_cast<size_t>(p) & (page - 1);        // advice starts on a page boundary
+        ::madvise(const_cast<unsigned char*>(p) - lead, j.end - j.at + lead, MADV_WILLNEED);
+#else
+        (void) j;
+#endif
+    };
     while (!stop_.load(std::memory_order_relaxed)) {
         for (int i = 0; i < kGrandFiles; ++i) {
             if (!want_[i].exchange(0, std::memory_order_relaxed)) continue;
-            const size_t from = size_t(headFrames_[i]) * 4, end = size_t(kGrandFile[i].frames) * 4;
+            const Job fresh{i, size_t(headFrames_[i]) * 4, size_t(kGrandFile[i].frames) * 4};
+            announce(fresh);
             bool known = false;
             for (auto& j : jobs)
-                if (j.file == i) { j.at = from; known = true; }      // struck again: start over
-            if (!known) jobs.push_back({i, from, end});
+                if (j.file == i) { j.at = fresh.at; known = true; }          // struck again: start over
+            if (!known) jobs.push_back(fresh);
         }
         if (jobs.empty()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(3));
@@ -151,14 +167,6 @@ void GrandPack::helper() {
             Job& j = jobs[k];
             const size_t n = j.end - j.at < kStretch ? j.end - j.at : kStretch;
             const unsigned char* p = reinterpret_cast<const unsigned char*>(maps_[j.file].pcm) + j.at;
-#if HK_HAVE_MMAP
-            if (!maps_[j.file].heap) {
-                // the advice must start on a page boundary
-                const size_t page = size_t(::sysconf(_SC_PAGESIZE));
-                const size_t lead = (reinterpret_cast<size_t>(p)) & (page - 1);
-                ::madvise(const_cast<unsigned char*>(p) - lead, n + lead, MADV_WILLNEED);
-            }
-#endif
             volatile unsigned char sink = 0;
             for (size_t o = 0; o < n; o += 4096) sink = p[o];
             if (n) sink = p[n - 1];
