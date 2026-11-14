@@ -604,6 +604,12 @@ def t_grand_engine():
     t = hk.Synth(FS); t.note_on(60, 0.8)
     u = hk.Synth(FS); u.set("grandon", 1); u.set("balance", 0.5); u.note_on(60, 0.8)
     check("without the recordings the grand is silent and the tines play on", not np.any(l) and np.abs(u.render(FS)[0]).max() > 0.5 * np.abs(t.render(FS)[0]).max())
+    a = hk.Synth(FS); a.load_grand(); a.set("tineson", 0); a.set("grandon", 1); a.set("balance", 0.0); a.note_on(60, 0.8)
+    b = hk.Synth(FS); b.load_grand(); b.set("tineson", 0); b.set("grandon", 1); b.note_on(60, 0.8)
+    c = hk.Synth(FS); c.load_grand(); c.set("grandon", 1); c.set("balance", 0.0); c.set("reverb", 0); c.note_on(60, 0.8)
+    d = hk.Synth(FS); d.set("reverb", 0); d.set("tinering", 1e-4); d.note_on(60, 0.8)
+    check("balance acts only when both instruments are on", np.array_equal(a.render(FS)[0], b.render(FS)[0])
+          and np.allclose(c.render(FS)[0], d.render(FS)[0], atol=2e-4))
 
     levels = []
     for i, name in enumerate(hk.PRESET_NAMES):

@@ -183,8 +183,10 @@ void Engine::controlTick() {
         }
         compStep_ = (target - compGain_) / TineBank::kTick;
     }
-    {   // balance: each side is at full level up to the middle of the knob
-        const double b = sm_[kBalance];
+    {   // balance: each side is at full level up to the middle of the knob; it only acts
+        // when both instruments answer the keys
+        const bool both = sm_[kTinesOn] > 0.5 && sm_[kGrandOn] > 0.5;
+        const double b = both ? sm_[kBalance] : 0.5;
         const double gt = std::min(1.0, 2.0 * (1.0 - b)), gg = std::min(1.0, 2.0 * b);
         tineGain_ = gt * gt;
         grandGain_ = gg * gg / kOutputTrim;
