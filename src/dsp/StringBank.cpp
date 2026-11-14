@@ -116,29 +116,38 @@ void StringBank::render(const float* excGrand, const float* excTine, const Grand
         const float a = st.inGrand, b = st.inTine;
         if (own) for (int i = 0; i < n; ++i) x[i] = a * (excGrand[i] - own[i]) + b * excTine[i];
         else     for (int i = 0; i < n; ++i) x[i] = a * excGrand[i] + b * excTine[i];
-        float* yr = yr_ + st.first;
-        float* yi = yi_ + st.first;
-        const float* c = c_ + st.first;
-        const float* s = s_ + st.first;
-        const float* g = g_ + st.first;
+        // separate arrays: telling the compiler so lets it work on four resonators at once
+        float* __restrict yr = yr_ + st.first;
+        float* __restrict yi = yi_ + st.first;
+        const float* __restrict c = c_ + st.first;
+        const float* __restrict s = s_ + st.first;
+        const float* __restrict g = g_ + st.first;
         const int cnt = st.count;
         const float pl = st.panL, pr = st.panR;
-        for (int i = 0; i < n; ++i) {
-            const float in = x[i];
-            float acc[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-            for (int j = 0; j < cnt; j += 4) {
-                for (int q = 0; q < 4; ++q) {
-                    const float re = yr[j + q], im = yi[j + q];
-                    const float nr = c[j + q] * re - s[j + q] * im + g[j + q] * in;
-                    const float ni = s[j + q] * re + c[j + q] * im;
-                    yr[j + q] = nr;
-                    yi[j + q] = ni;
-                    acc[q] += nr;
-                }
+        // Four resonators at a time, each group through the whole stretch with its state in
+        // registers: z <- z * r e^(jw) + g * input, output = real part.
+        float out[kTick] = {};
+        for (int j = 0; j < cnt; j += 4) {
+            float re[4], im[4], cc[4], ss[4], gg[4];
+            for (int q = 0; q < 4; ++q) {
+                re[q] = yr[j + q]; im[q] = yi[j + q];
+                cc[q] = c[j + q]; ss[q] = s[j + q]; gg[q] = g[j + q];
             }
-            const float o = (acc[0] + acc[1]) + (acc[2] + acc[3]);
-            left[i] += pl * o;
-            right[i] += pr * o;
+            for (int i = 0; i < n; ++i) {
+                const float in = x[i];
+                float nr[4], ni[4];
+                for (int q = 0; q < 4; ++q) {
+                    nr[q] = cc[q] * re[q] - ss[q] * im[q] + gg[q] * in;
+                    ni[q] = ss[q] * re[q] + cc[q] * im[q];
+                }
+                for (int q = 0; q < 4; ++q) { re[q] = nr[q]; im[q] = ni[q]; }
+                out[i] += (nr[0] + nr[1]) + (nr[2] + nr[3]);
+            }
+            for (int q = 0; q < 4; ++q) { yr[j + q] = re[q]; yi[j + q] = im[q]; }
+        }
+        for (int i = 0; i < n; ++i) {
+            left[i] += pl * out[i];
+            right[i] += pr * out[i];
         }
         st.ringing = true;
         any = true;

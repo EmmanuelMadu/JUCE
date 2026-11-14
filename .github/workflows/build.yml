@@ -157,3 +157,12 @@ jobs:
           gh release create latest dist/HearthKeys-macOS.zip interface.png interface-tines.png \
             --title "Latest build" --prerelease --target "$GITHUB_SHA" \
             --notes "Automatic build of commit $GITHUB_SHA. Unzip, then run install_mac.sh from Terminal (see READ ME FIRST.txt). The installer also fetches the grand piano's recordings (about 270 MB, once)."
+
+      - name: The one-line install from the instructions, from the public download
+        if: success()
+        run: |
+          mkdir -p ~/Downloads
+          cd ~/Downloads && curl -L -o HearthKeys-macOS.zip "https://github.com/$GITHUB_REPOSITORY/releases/download/latest/HearthKeys-macOS.zip" && rm -rf "Hearth Keys" && ditto -x -k HearthKeys-macOS.zip . && bash "Hearth Keys/install_mac.sh"
+          killall -9 AudioComponentRegistrar 2>/dev/null || true
+          sleep 2
+          auval -v aumu HrKy Hmde | tail -3

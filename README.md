@@ -14,6 +14,19 @@ the tines set the piano's strings ringing.
 place and tested. The Mac build is produced, installed and tested by the
 GitHub workflow in `.github/workflows/build.yml`.
 
+## Installing on a Mac
+
+Paste this line into Terminal (Applications > Utilities) and press Return. It
+downloads the latest build, installs the plug-ins for the current user and
+fetches the grand's recordings (about 270 MB, once):
+
+```sh
+cd ~/Downloads && curl -L -o HearthKeys-macOS.zip https://github.com/EmmanuelMadu/JUCE/releases/download/latest/HearthKeys-macOS.zip && rm -rf "Hearth Keys" && ditto -x -k HearthKeys-macOS.zip . && bash "Hearth Keys/install_mac.sh"
+```
+
+Then restart Logic: AU Instruments > Homemade > Hearth Keys. Details are in
+`docs/INSTALL.txt`.
+
 ## The tines
 
 Nothing is sampled. Each of the 88 keys has its own simulated sound generator:
